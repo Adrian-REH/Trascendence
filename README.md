@@ -28,12 +28,7 @@ npm install
 npm run dev
 ```
 
-## Participantes
-  [Adrian Herrera](https://github.com/Adrian-REH)
-  [Alejandro Blanco](https://github.com/albartol)
-  [Fabricio López](https://github.com/sherlockPE/)
-  [Grace Taza](https://github.com/grey-ssy)
-  [Iñigo Alvarez](https://github.com/cacharri)
+
 
 
 <!-- > [!NOTE]
