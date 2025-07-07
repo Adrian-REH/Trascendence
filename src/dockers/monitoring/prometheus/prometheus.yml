@@ -1,0 +1,69 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'transcendence'
+
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
+scrape_configs:
+  - job_name: 'backend'
+    scheme: http
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['app:3000']
+
+  - job_name: 'php'
+    static_configs:
+      - targets: ['php-fpm-exporter:9253']
+
+  - job_name: 'nginx'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['nginx-exporter:9113']
+
+  - job_name: 'vault'
+    scheme: https
+    metrics_path: /v1/sys/metrics
+    static_configs:
+      - targets: ['security:8200']
+    authorization:
+      credentials_file: /vault/data/prometheus/token.txt
+    tls_config:
+      ca_file: /etc/vault/tls/ca.crt
+      insecure_skip_verify: false
+
+  - job_name: 'elasticsearch'
+    metrics_path: '/metrics'
+    scheme: http
+    static_configs:
+      - targets: ['elasticsearch_exporter:9114']
+
+  - job_name: 'logstash'
+    static_configs:
+      - targets: ['logstash-exporter:9811']
+
+  - job_name: 'kibana'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['kibana-exporter:9201']
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+
+  - job_name: 'grafana'
+    metrics_path: /metrics
+    scheme: https
+    tls_config:
+      ca_file: /etc/prometheus/certs/ca.crt
+      insecure_skip_verify: true
+    basic_auth:
+      username: admin
+      password_file: /grafana_data/admin_password
+    static_configs:
+      - targets: ['grafana:3000']

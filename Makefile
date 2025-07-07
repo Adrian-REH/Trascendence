@@ -1,43 +1,118 @@
-VOLUME_PATH=/home/${USER}/trascendence_volumes
+all: grant_permissions setup
+	@docker compose -f ./src/docker-compose.yml up ${c} -d --build
+	@clear
+	@./script/loading.sh 
+	@clear
+	@./script/display_art.sh
 
-RED="\033[0;31m"
-GREEN="\033[0;32m"
-MAGENTA="\033[0;35m"
-PINK="\033[0;95m"
-CYAN="\033[0;36m"
-YELLOW="\033[0;33m"
-NC="\033[0m"
+grant_permissions:
+	@chmod +x ./script/loading.sh
+	@chmod +x ./script/verify_user.sh
+	@chmod +x ./script/display_art.sh
+	@chmod +x ./script/jwt_tools.sh
+	@chmod +x ./script/display_help.sh
+	@chmod +x ./script/2fa_tools.sh
+	@chmod +x ./script/email_report.sh
 
-
-all: create_volumes
-	docker compose -f srcs/docker-compose.yml up --build -d
-	docker compose -f srcs/docker-compose.yml start
-
-stop:
-	docker compose -f srcs/docker-compose.yml stop
+kill_docker:
+	@./script/kill_docker.sh
 
 down:
-	docker compose -f srcs/docker-compose.yml down
-
-restart:
-	docker compose -f srcs/docker-compose.yml restart
-
-logs:
-	docker compose -f srcs/docker-compose.yml logs
-
-up-%:
-	docker compose -f srcs/docker-compose.yml up $* -d
-
-build-%:
-	docker compose -f srcs/docker-compose.yml build $* 
-
-create_volumes:
-	echo $(GREEN)"Creating volumes... 🗃️"$(NC)
-	mkdir -p $(VOLUME_PATH)
+	@docker compose -f ./src/docker-compose.yml down
 
 clean:
-	@echo $(RED)"Deleting Volumes... 🧹"$(NC)
-	docker compose -f srcs/docker-compose.yml down
-	sudo rm -rf $(VOLUME_PATH)
+	@echo "⚠️  Borrando por completo ~/goinfre/data ..."
+	@docker run --rm -v $(HOME)/goinfre:/mnt alpine sh -c "rm -rf /mnt/data"
+	@if docker ps -qa | grep -q .; then docker stop $$(docker ps -qa); fi
+	@if docker ps -qa | grep -q .; then docker rm $$(docker ps -qa); fi
+	@if docker images -qa | grep -q .; then docker rmi $$(docker images -qa); fi
+	@if docker volume ls -q | grep -q .; then docker volume rm $$(docker volume ls -q); fi
+	@if docker network ls --filter name=transcendence -q | grep -q .; then docker network rm transcendence; fi
 
-.PHONY: all down stop restart logs up-% build-%
+setup:
+	@mkdir -p $(HOME)/goinfre
+	@mkdir -p $(HOME)/goinfre/data
+	@mkdir -p $(HOME)/goinfre/data/sqlite
+	@mkdir -p $(HOME)/goinfre/data/app
+	@mkdir -p $(HOME)/goinfre/data/php
+	@mkdir -p $(HOME)/goinfre/data/frontend
+	@mkdir -p $(HOME)/goinfre/data/security
+	@mkdir -p $(HOME)/goinfre/data/vault
+	@mkdir -p $(HOME)/goinfre/data/elasticsearch
+	@mkdir -p $(HOME)/goinfre/data/logstash
+	@mkdir -p $(HOME)/goinfre/data/grafana
+	@mkdir -p $(HOME)/goinfre/data/prometheus
+	@mkdir -p $(HOME)/goinfre/data/prometheus_query_log
+	@mkdir -p $(HOME)/goinfre/data/mail
+	@mkdir -p $(HOME)/goinfre/data/mail-state
+	@mkdir -p $(HOME)/goinfre/data/es_secrets
+	@mkdir -p $(HOME)/goinfre/data/es_data
+	@mkdir -p $(HOME)/goinfre/data/es_certs
+	@mkdir -p $(HOME)/goinfre/data/ls_config
+	@mkdir -p $(HOME)/goinfre/data/ls_pipeline
+	@mkdir -p $(HOME)/goinfre/data/kibana
+	@mkdir -p $(HOME)/goinfre/data/vault_backups
+
+re: down all
+
+delete:
+	@docker compose -f ./src/docker-compose.yml down -v
+	@if docker volume ls -qf "name=transcendence" | grep -q .; then \
+		docker volume rm $$(docker volume ls -qf "name=transcendence"); \
+	else \
+		echo "No transcendence volumes to remove."; \
+	fi
+	@docker system prune --volumes -a
+
+ps:
+	@docker compose -f ./src/docker-compose.yml ps -a
+
+logs:
+	@docker compose -f ./src/docker-compose.yml logs
+
+logs_service:
+	@if [ -z "$(SERVICE)" ]; then \
+		echo "Por favor, especifica un servicio. Uso: make logs_service SERVICE=<nombre_del_servicio>"; \
+	else \
+		docker compose -f ./src/docker-compose.yml logs $(SERVICE); \
+	fi
+
+scan:
+	@docker exec -it security /zap/wrk/zap_scan.sh
+
+security:
+	@echo "Ejecutando pruebas de seguridad..."
+	@docker exec security mkdir -p /zap/reports
+	@docker cp script/security_test.sh security:/tmp/security_test.sh
+	@docker exec security chmod +x /tmp/security_test.sh
+	@docker exec security /tmp/security_test.sh
+	@echo "Reportes disponibles en:"
+	@echo "- Resumen de seguridad: https://localhost:8443/zap_reports/security_report.html"
+	@echo "- Reporte detallado de ZAP: https://localhost:8443/zap_reports/zap_report.html"
+
+token:
+	@docker exec -it security cat /vault/data/ui_token.txt
+
+help: grant_permissions
+	@./script/display_help.sh
+
+jwt: grant_permissions
+	@./script/jwt_tools.sh jwt 
+
+verify: grant_permissions
+	@./script/verify_user.sh $(user)
+
+2fa: grant_permissions
+	@./script/2fa_tools.sh $(user)
+
+email: grant_permissions
+	@./script/email_report.sh
+
+elastic-password:
+	@docker exec elasticsearch cat /usr/share/elasticsearch/secrets/elastic_password
+	@docker exec -it logstash curl -X POST -H "Content-Type: application/json" -d '{"time": 1678886400000, "level": 30, "msg": "Test HTTP log from curl"}' http://logstash:8082
+
+grafana:
+	@docker exec -it grafana cat /var/lib/grafana/admin_password
+
+.PHONY: all down clean setup delete logs logs_service ps re help scan security token verify jwt 2fa email elastic-password grafana
