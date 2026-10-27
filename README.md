@@ -1,195 +1,219 @@
 # Trascendence
 
-# Arquitectura de Directorios
-La siguiente arquitecta esta basada en Puertos y Adaptados, haciendo que sea facil de mantener, extender y contine un orden modular, se hace uso de principios SOLID, FIRST y POO.
+Full-stack web platform built with **TypeScript**, **Fastify 5**, and a **microservices architecture**. Features real-time chat via WebSocket, JWT authentication, and a vanilla TypeScript SPA — all containerized with Docker Compose behind an Nginx reverse proxy with TLS.
+
+> 42 School project — building a complete web application from scratch without using mainstream frontend frameworks.
+
+## Architecture
+
+```mermaid
+graph TB
+    Browser["Browser"]
+
+    subgraph Docker["Docker Compose · transcendence-net"]
+        Nginx["Nginx :443<br/><sub>TLS · Reverse Proxy</sub>"]
+
+        subgraph Services["Microservices"]
+            Auth["Auth Service :3020<br/><sub>JWT · Sign in/up</sub>"]
+            User["User Service :3010<br/><sub>User management</sub>"]
+            Chat["Chat Service :3000<br/><sub>Real-time messaging</sub>"]
+        end
+
+        Front["Frontend :3040<br/><sub>Vanilla TS SPA</sub>"]
+    end
+
+    Browser <-->|"HTTPS"| Nginx
+    Nginx -->|"/api/v1/auth/*"| Auth
+    Nginx -->|"/api/v1/users/*"| User
+    Nginx -->|"/api/v1/chats/*"| Chat
+    Nginx -->|"/"| Front
+
+    Auth -->|"HTTP · verify user"| User
+    Chat -->|"HTTP · verify roles"| User
+    Chat <-->|"WebSocket"| Browser
 ```
-src/
-├── app.config.ts
-├── application/
-│   ├── ports/
-│   │   ├── ChatRepositoryPort.ts
-│   │   ├── SessionRepositoryPort.ts
-│   │   └── UserRepositoryPort.ts
-│   └── use-cases/
-│       ├── CloseSession.ts
-│       ├── ListenMessage.ts
-│       ├── LoadChat.ts
-│       ├── LoadChatByUserId.ts
-│       ├── LoadMessage.ts
-│       └── VerifyConnection.ts
-├── domain/
-│   ├── entities/
-│   │   ├── Chat.ts
-│   │   ├── Message.ts
-│   │   └── User.ts
-│   └── exception/
-│       └── HandleException.ts
-├── infrastructure/
-│   ├── db/
-│   │   ├── ChatSingleton.ts
-│   │   └── SessionSingleton.ts
-│   ├── repositories/
-│   │   ├── ChatRepositoryAdapter.ts
-│   │   ├── SessionRepositoryAdapter.ts
-│   │   └── UserRepositoryAdapter.ts
-│   └── rest/
-│       ├── UserRepositoryStore.ts
-│       └── UserTemplate.ts
+
+## Hexagonal Architecture (Ports & Adapters)
+
+All three backend services follow the same **hexagonal architecture** with SOLID principles:
+
+```mermaid
+graph LR
+    subgraph Interfaces["Interfaces (driving side)"]
+        Routes["Routes<br/><sub>endpoint config + Swagger</sub>"]
+        Guards["Guards<br/><sub>JWT · roles</sub>"]
+        Controllers["Controllers<br/><sub>request/response handling</sub>"]
+    end
+
+    subgraph Application["Application (core)"]
+        UseCases["Use Cases"]
+        Ports["Ports<br/><sub>repository interfaces</sub>"]
+    end
+
+    subgraph Domain["Domain"]
+        Entities["Entities<br/><sub>Chat · Message · User</sub>"]
+        Exceptions["Exceptions"]
+    end
+
+    subgraph Infrastructure["Infrastructure (driven side)"]
+        Adapters["Repository Adapters<br/><sub>implements Ports</sub>"]
+        DB["Database<br/><sub>Singletons</sub>"]
+        REST["REST Templates<br/><sub>inter-service calls</sub>"]
+    end
+
+    Routes --> Guards --> Controllers --> UseCases
+    UseCases --> Ports
+    Adapters -.->|"implements"| Ports
+    Adapters --> DB
+    Adapters --> REST
+    UseCases --> Entities
+```
+
+```
+service/
 ├── interfaces/
-│   ├── controllers/
-│   │   ├── ChatController.ts
-│   │   └── ChatWebSocketController.ts
-│   ├── guards/
-│   │   └── RoleGuard.ts
-│   └── routes/
-│       ├── chatRoutes.ts
-│       └── chatWebSocketRoutes.ts
-└── server.ts
-```
-## Application
-
-> **use-case**:Los casos de usos espcificos que hara uso el controller para que lo consuma
-
->**ports**: Los puertos son interface que contienen las funciones de los fuentes de datos, la implementan los Adapter. Port no conoce a Adapter
-
-
-## Domain
->**entities**: Las entities son clases iguales a las que estan en base de datos, contienen todos los datos necesarios para la clase, contraseña, email, stats, etc.
-
->**dto**: Data Transfer Object, son clases resumidas de Entities, que se utilizan para no comprometer toda la Entidad y contienen datos relevantes al caso de uso, ejemplo UserDto contiene solo Id, email, LastUpdate, etc.
-
->**exception**:Contiene las clases adecuadas a la gestion de ecepciones, y su usabilidad, extienden de Error.
-
-## Infrastructure
->**repository**: Aqui iran los Adapters que implementan Port, Contienen la implementacion de utilidad para Applicacion ya sea la base de datos, Recursos cache(Singleton), RestTemplate asi como otras fuentes de datos.
-
->**db**: Aqui ira la conexion a la Base de datos y la implementacion de ORM para su uso
-
->**rest**: Aqui iran encargadas las funciones fetch que se utilizaran para llamar ApiRest de otros servicios.
-
-## Interfaces
->**controllers**: Aqui se gestiona la entrada y salida del endpoint, nos ayudan a gestionar como devolveremos el dato y que datos obtendremos de la request para enviar a resolverlo en el Caso de Uso(Application)
-
->**guards**: Aqui va toda las funciones y clases que contengan la seguridad del endpoin, ejemplo verificar JWT, filtrar por roles, ver si continen headers necesarios tratar las cookies, etc. 
-
->**routes**: Aqui esta la configuracion del Endpoint, el tipo de metodo, el tipo de protocolo, capa de seguridad jwt y roles, tipo de request y response que necesita asi como la configuracion de Swagger.
-
-# Microservice
-Se hace uso de la arquitectura microservicios para que el usuario pueda acceder libremente a Gateway y el mismo Authorizar y filtrar las peticiones a los servicios que incluimos.
-
-El despliegue esta hecho en DockerCompose con los siguientes servicios
-## Auth-Service
-Se encarga de iniciar session y registrar usuarios, asi como asignar los roles, generar jwt, crear Hash Password y filtrar las peticiones.
-
-**Como iniciar**
-```bash
-cd back-end/auth-service
-npm run dev
+│   ├── routes/          # Endpoint config, HTTP method, Swagger schema
+│   ├── guards/          # JWT verification, role filtering, cookie handling
+│   └── controllers/     # Request parsing → use case → response formatting
+├── application/
+│   ├── use-cases/       # Business logic (one class per action)
+│   └── ports/           # Repository interfaces (Port does not know Adapter)
+├── domain/
+│   ├── entities/        # Core data models (Chat, Message, User)
+│   └── exception/       # Custom error handling
+└── infrastructure/
+    ├── repositories/    # Adapters implementing Ports
+    ├── db/              # Data source connections and singletons
+    └── rest/            # HTTP clients for inter-service communication
 ```
 
-**Swagger**
-Estos son los endpoint habilitados por el momento en swgger para hacer uso en tiempo real. 
-- ``/api/v1/auth/signin``
-- ``/api/v1/auth/verify``
-- ``/api/v1/auth/signup``
+## Services
 
-Link:
-```http
-http://localhost:3000/docs
-```
-**documentacion**
+### Auth Service `:3020`
 
-```bash
-npm run docs
-```
+Handles authentication — sign in, sign up, and session verification.
 
-## User-Service
-Servicio encargado de gestionar los Usuarios y obtener sus estadisticas.
+| Endpoint | Method | Auth | Description |
+|---|---|---|---|
+| `/api/v1/auth/signin` | POST | — | Login with credentials, returns JWT cookie |
+| `/api/v1/auth/signup` | POST | — | Register new user |
+| `/api/v1/auth/me` | GET | JWT (role: view) | Verify session and return user info |
 
-```bash
-cd back-end/auth-service
-npm run dev
-```
+- JWT signed with configurable secret, stored as httpOnly cookie
+- Passwords hashed with bcrypt
+- Delegates user storage to User Service via REST
 
-**Swagger**
-Estos son los endpoint habilitados por el momento en swgger para hacer uso en tiempo real. 
+### User Service `:3010`
 
+User management and profile data.
 
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/v1/users` | GET | List all users |
+| `/api/v1/users/:userId` | GET | Get user by ID |
+| `/api/v1/users/save-user` | POST | Create user |
+| `/api/v1/users/:userId` | POST | Update user |
 
-```htpp
-http://localhost:3010/docs
-```
+### Chat Service `:3000`
 
-**documentacion**
+Real-time messaging with WebSocket and REST endpoints.
 
-```bash
-npm run docs
-```
+| Endpoint | Method | Auth | Description |
+|---|---|---|---|
+| `/api/v1/chats/user/:userId` | GET | JWT | List chats for a user |
+| `/api/v1/chats/:chatId` | GET | JWT | Get chat details |
+| `/api/v1/chats/:chatId/messages` | GET | JWT | Load messages |
+| `/api/v1/chats/connect-ws` | WS | JWT | Real-time messaging |
 
-## Chat-Service
-En chat se puede gestionar todos los chats que hay entre los usuarios y mantener un LiveChat con el servidor para enviar mensajes en tiempo real, esta capado por JWT y roles para restrigir el consumo de datos
+**Use cases:**
+- `ListenMessage` — receive and broadcast messages via WebSocket
+- `LoadChat` / `LoadChatByUserId` — retrieve chat history
+- `BroadcastConnectionStatus` — notify users of online/offline status
+- `CloseSession` / `VerifyConnection` — session lifecycle management
 
-**Como iniciar**
-```bash
-cd back-end/chat-service
-npm run dev
-```
+**Role-based access:** every request is verified against User Service through `RoleGuard`.
 
-**Swagger**
+### Frontend `:3040`
 
-Estos son los endpoint habilitados por el momento en swgger para hacer uso en tiempo real.
+Vanilla **TypeScript SPA** — no React, no Vue, no Angular. Custom component system built from scratch:
 
-*Chats*
-- ``/api/v1/chats/:chatId/messages``
-- ``/api/v1/chats/:chatId``
-- ``/api/v1/chats/user/:userId``
+- Hash-based routing (`#home`, `#game`, `#stats`, `#profile`, `#chat`)
+- Custom `Component` base class for UI composition
+- Login and registration flows
+- Real-time chat interface via WebSocket
+- Statistics page with chart visualization
+- Built with **Tailwind CSS 3** for styling
 
-*WebSocket*
-- ``/chats/connect-ws``
+### Nginx
 
-```http
-http://localhost:3000/docs
+Reverse proxy with TLS termination:
 
-```
+- Routes all `/api/v1/*` paths to the corresponding service
+- Serves the frontend at `/`
+- Swagger docs accessible at `/docs/auth/`, `/docs/users/`, `/docs/chats/`
+- TLS 1.2 with self-signed certificates
 
-# Ejecutar el proyecto
-Se puede hacer uso de docker compose para iniciar el proyecto
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Language | TypeScript (backend + frontend) |
+| Runtime | Node.js 18 |
+| Framework | Fastify 5 |
+| Real-time | WebSocket (@fastify/websocket) |
+| Auth | JWT (@fastify/jwt) + bcrypt + httpOnly cookies |
+| API Docs | Swagger (@fastify/swagger-ui) |
+| Frontend | Vanilla TypeScript SPA + Tailwind CSS 3 |
+| Proxy | Nginx with TLS |
+| Containers | Docker Compose (5 services + nginx) |
+| Architecture | Hexagonal (Ports & Adapters), Microservices |
+
+## Getting Started
+
+### With Docker Compose (recommended)
+
 ```bash
 docker compose up -d
 ```
-# Casos de uso
-Para conocer los caso de uso y las funciones que se utilizan en el proyecto:
 
-> Registro
+The app will be available at `https://localhost`.
 
-> Inicio de session
+### Local development
 
-> Iniciar un Chat
+Run each service in a separate terminal:
 
-> Enviar un mensaje
+```bash
+# Auth Service
+cd back-end/auth-service
+npm install && npm run dev
 
-> Recibir un mensaje
+# User Service
+cd back-end/user-service
+npm install && npm run dev
 
-![alt text](image-2.png)
+# Chat Service
+cd back-end/chat-service
+npm install && npm run dev
 
-# Recursos
-Tecnologias: 
-- TypeScript
-- Html
-- CSS
-
-Dependencias:
-- Fastify: Es una libreria para crar apis de forma rapida y elegante
-	- jwt: Extencion para registrar Json web Token y verificarlo
-	- bcrypt: Util para crear HashPassword y guardarlas en DB y no comprometer la contraseña real
-	- swagger: Se utiliza para documentar y probar las Apis creadas
-	- cors: Para restringir las apis solo direcciones especificas
-	- static: Nos ayuda a enviar HTML y CSS estatica.
-	- websocket: Para mantener una comunicacion Abierta y no bloqueante entre Srvidor y Cliente 
-- dotenv: Abstrae las variables de entorno al programa.
-- tailwind: Para generar CSS robusto y facil para el visual.
-
-# Licencia
+# Frontend
+cd front-end
+npm install && npm run dev
 ```
 
-```
+### API Documentation
+
+Each service exposes Swagger UI:
+
+| Service | Swagger URL |
+|---|---|
+| Auth | `http://localhost:3020/docs` |
+| User | `http://localhost:3010/docs` |
+| Chat | `http://localhost:3000/docs` |
+
+## Status
+
+Active development on `develop` branch. Core features (auth, chat, user management) are functional. Game module is in progress.
+
+## License
+
+MIT
